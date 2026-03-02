@@ -1,7 +1,3 @@
-/**
- * OBSERVER_ENGINE // COMPLETE SOURCE // VER 23.3
- * FEATURES: 300 HP WORM SEGMENTS (10-HIT MIN) // 0.5S SPAWN RATE // FINAL WORM MINION WAVE
- */
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -22,7 +18,6 @@ const resize = () => {
 window.addEventListener('resize', resize);
 resize();
 
-// --- 1. ASSETS & AUDIO ---
 const assets = {};
 const assetFiles = {
     intro: "intro.png", startBtn: "start_btn.png", gameOver: "gameover.png",
@@ -79,7 +74,7 @@ async function loadAssets() {
     createDirtTexture();
 }
 
-// --- 2. STATE & PROGRESS ---
+
 const STAGES = [
     { type: "DRILLING", duration: 720, label: "MINE 1", goal: 0 },
     { type: "COMBAT", duration: 0, label: "KILL 30", goal: 30 },
@@ -104,7 +99,7 @@ let wormIndex = 0;
 let activeSingularity = null, singularityCooldown = 0;
 const BARRIER_RADIUS = 110;
 
-// --- 3. VISION ---
+
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
 hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
 
@@ -139,7 +134,7 @@ hands.onResults((res) => {
     } else { gear.active = false; }
 });
 
-// --- 4. RENDERERS ---
+
 function drawProgressTracker() {
     const barX = 30, barY = 150, barW = 20, barH = h - 300;
     ctx.fillStyle = "rgba(0, 255, 255, 0.1)";
@@ -208,7 +203,10 @@ function drawDrilling() {
         obstacles = []; collectables = []; return;
     }
     ctx.save(); ctx.translate(0, (frame * 15) % 128); ctx.fillStyle = dirtPattern; ctx.fillRect(0, -128, w, h + 256); ctx.restore();
-    if (frame % 40 === 0) obstacles.push({ x: Math.random()*(w-200)+100, y: -100 });
+    
+    // ROCKS: 1 every 90 frames
+    if (frame % 90 === 0) obstacles.push({ x: Math.random()*(w-200)+100, y: -100 });
+    
     if (frame % 35 === 0) collectables.push({ x: Math.random()*(w-200)+100, y: -50 });
     obstacles.forEach((o, i) => {
         o.y += 15; if (assets.rock) ctx.drawImage(assets.rock, o.x-80, o.y-80, 160, 160);
@@ -230,15 +228,19 @@ function drawDrilling() {
 }
 
 function spawnNextWorm() {
-    currentWorm = []; sfx.boss.play();
-    // 10 shots x 30 damage = 300 HP. Each segment is a tank.
-    for(let i=0; i<12; i++) {
+    currentWorm = []; 
+    sfx.boss.play();
+    let speed = (wormIndex === 0) ? 3.5 : 5.3;
+    let length = (wormIndex === 2) ? 14 : 12;
+
+    for(let i=0; i<length; i++) {
         currentWorm.push({ 
             x: -200 - (i*40), 
             y: h/2, 
             hp: 900, 
             maxHp: 900, 
-            type: i===0 ? "head" : (i===11 ? "tail" : "body") 
+            speed: speed,
+            type: i===0 ? "head" : (i===length-1 ? "tail" : "body") 
         });
     }
 }
@@ -281,28 +283,24 @@ function drawCombat(isBoss = false) {
     });
 
     if (isBoss) {
-        // Continuous Spawning for the Final Boss Encounter
         if (wormIndex === 2 && currentWorm.length > 0 && frame % 30 === 0) {
             enemies.push({ x: Math.random()*w, y: -100, hp: 15, max: 15 });
         }
-
         if (currentWorm.length > 0 || enemies.length > 0) {
             currentWorm.forEach((s, i) => {
                 const tx = i === 0 ? gear.x : currentWorm[i-1].x;
                 const ty = i === 0 ? gear.y : currentWorm[i-1].y;
                 const angle = Math.atan2(ty - s.y, tx - s.x);
                 if (freezeTimer <= 0) {
-                    if (i === 0) { s.x += Math.cos(angle)*3.5; s.y += Math.sin(angle)*3.5; } 
+                    if (i === 0) { s.x += Math.cos(angle)*s.speed; s.y += Math.sin(angle)*s.speed; } 
                     else { const d = Math.hypot(tx-s.x, ty-s.y); if(d>35){ s.x += Math.cos(angle)*(d-35); s.y += Math.sin(angle)*(d-35); } }
                 }
                 ctx.save(); ctx.translate(s.x, s.y); if(s.type==="body") ctx.scale(1, Math.sin(frame*0.1+i)*0.3+1);
                 ctx.rotate(angle); let img = s.type==="head"?assets.wormhead:(s.type==="tail"?assets.wormtail:assets.wormbody);
                 if(img) ctx.drawImage(img, -45, -45, 90, 90); ctx.restore();
                 ctx.fillStyle="black"; ctx.fillRect(s.x-25, s.y-55, 50, 6); ctx.fillStyle="red"; ctx.fillRect(s.x-25, s.y-55, (s.hp/s.maxHp)*50, 6);
-                
                 projectiles.forEach((p, pi) => {
                     if (Math.hypot(p.x-s.x, p.y-s.y) < 55) { 
-                        // Cannonball: 30 DMG. Segment: 300 HP. Result: 10 shots.
                         s.hp -= (p.type==="CANNON" ? 30 : 8); 
                         if(p.type!=="CANNON") projectiles.splice(pi,1); 
                         if(s.hp<=0) { sfx.kill.cloneNode().play(); currentWorm.splice(i,1); score += 500; }
@@ -330,9 +328,12 @@ function drawCombat(isBoss = false) {
         }
     } else {
         let stageGoal = STAGES[currentStageIdx].goal;
-        if (frame % 30 === 0 && (killCount + enemies.length) < stageGoal) {
+        
+        // ENEMIES: 1 every 0.9s (54 frames)
+        if (frame % 54 === 0 && (killCount + enemies.length) < stageGoal) {
             enemies.push({ x: Math.random()*w, y: -100, hp: 12, max: 12 });
         }
+        
         enemies.forEach((e, i) => {
             let d = Math.hypot(gear.x-e.x, gear.y-e.y);
             if(freezeTimer<=0){ e.x += (gear.x-e.x)/d*4.2; e.y += (gear.y-e.y)/d*4.2; }
@@ -359,14 +360,42 @@ function drawVideoTransition() {
     if (introVid.ended) { currentState = "DRILLING"; introVid.pause(); }
 }
 
+
 function drawSurface() {
     if (sfx.win.paused) sfx.win.play();
     if(assets.win) ctx.drawImage(assets.win, 0, 0, w, h);
-    ctx.font="24px Orbitron"; ctx.fillText(`SCORE: ${score} | COINS: ${coins}`, w/2, h/2 + 10);
-    ctx.fillStyle="#0ff"; ctx.fillText("CLICK TO REBOOT SYSTEM", w/2, h/2 + 70);
+    
+    const panelW = 600, panelH = 200;
+    const px = w/2 - panelW/2, py = h/2 - panelH/2;
+    
+    
+    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.fillRect(px, py, panelW, panelH);
+    
+    
+    ctx.strokeStyle = "#0ff";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(px, py, panelW, panelH);
+    
+    
+    ctx.textAlign = "center"; 
+    ctx.fillStyle = "black"; 
+    ctx.font = "bold 42px Orbitron"; 
+    
+    ctx.fillStyle = "white";
+    ctx.fillRect(px + 20, py + 40, panelW - 40, 60);
+    ctx.fillStyle = "black";
+    ctx.fillText(`MISSION SCORE: ${score.toString().padStart(6, '0')}`, w/2, py + 85);
+    
+    
+    ctx.fillStyle = "#0ff";
+    ctx.fillRect(px + 20, py + 120, panelW - 40, 50);
+    ctx.fillStyle = "black";
+    ctx.font = "bold 26px Orbitron";
+    ctx.fillText("CLICK TO RESTART", w/2, py + 155);
 }
 
-// --- 5. SYSTEM LOOP ---
+
 async function startSystem() {
     await loadAssets();
     const camera = new Camera(video, { onFrame: async () => { await hands.send({image: video}); }, width: 640, height: 480 });
